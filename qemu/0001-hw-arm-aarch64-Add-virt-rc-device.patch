@@ -1,6 +1,6 @@
-From 214fef08f38671fbb2241e3eadfa278a592551dc Mon Sep 17 00:00:00 2001
+From 88650fa73930e210328b4d6610f3d81b32fcfc82 Mon Sep 17 00:00:00 2001
 From: Milo Kim <woogyom.kim@gmail.com>
-Date: Thu, 11 Feb 2016 15:44:06 +0900
+Date: Thu, 11 Feb 2016 22:50:53 +0900
 Subject: [PATCH] hw: arm: aarch64: Add virt-rc device
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -94,9 +94,9 @@ Signed-off-by: Milo Kim <woogyom.kim@gmail.com>
  default-configs/aarch64-softmmu.mak |   1 +
  hw/arm/virt.c                       |  60 ++++++++++++++
  hw/misc/Makefile.objs               |   2 +
- hw/misc/virt_rc.c                   | 152 ++++++++++++++++++++++++++++++++++++
+ hw/misc/virt_rc.c                   | 153 ++++++++++++++++++++++++++++++++++++
  include/hw/arm/virt.h               |   1 +
- 5 files changed, 216 insertions(+)
+ 5 files changed, 217 insertions(+)
  create mode 100644 hw/misc/virt_rc.c
 
 diff --git a/default-configs/aarch64-softmmu.mak b/default-configs/aarch64-softmmu.mak
@@ -212,10 +212,10 @@ index ea6cd3c..cb428f0 100644
 +obj-$(CONFIG_VIRT_RC) += virt_rc.o
 diff --git a/hw/misc/virt_rc.c b/hw/misc/virt_rc.c
 new file mode 100644
-index 0000000..f1aa837
+index 0000000..f00f72c
 --- /dev/null
 +++ b/hw/misc/virt_rc.c
-@@ -0,0 +1,152 @@
+@@ -0,0 +1,153 @@
 +/*
 + * Virtual but Real Career controller
 + *
@@ -245,6 +245,7 @@ index 0000000..f1aa837
 +
 +#define BASE_URL              "http://localhost"
 +#define REG_PORT              0x0
++#define ROOT_DIR             "msb"
 +#define REG_OPEN_URL          0x4
 +#define REG_INT_STATUS        0x8
 +#define IRQ_URL_OPENED        BIT(0)
@@ -281,8 +282,8 @@ index 0000000..f1aa837
 +        goto err;
 +    }
 +
-+    snprintf(cmd, sizeof(cmd), "xdg-open %s:%d/%s/ &",
-+             BASE_URL, s->port, desc[value]);
++    snprintf(cmd, sizeof(cmd), "xdg-open %s:%d/%s/%s/ &",
++             BASE_URL, s->port, ROOT_DIR, desc[value]);
 +
 +    ret = system(cmd);
 +    if (ret) {

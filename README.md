@@ -11,14 +11,14 @@ The virt-rc system requires building not only QEMU but also kernel,
 so Docker is a good option to release new built binaries.  
 You can pull docker image from Docker hub.  
 
-	docker pull virtrc/latest
+	$ docker pull virtrc/latest
 
 This image includes built binaries and shell script file.  
 
 Alternatively, you can also build your Docker image using virt-rc Dockerfile. 
 Please check the docker file [here](https://github.com/milokim/virt-rc/blob/master/docker/Dockerfile).  
 
-	docker build -t virtrc/latest .
+	$ docker build -t virtrc/latest .
 
 ## How to Run Virt-RC  
 
@@ -42,7 +42,7 @@ You can login as root without password.
 	** VIRT-RC SYSTEM **
 	buildroot login: root
 
-Please move to the sysfs of virt-rc device.  
+Now, you are in ARM system. Please move to the sysfs of virt-rc device.  
 
 	# cd /sys/devices/platform/b000000.virt_rc/	
 	# cat career

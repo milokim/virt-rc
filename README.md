@@ -37,8 +37,7 @@ Please execute the shell script below.
 
 	root@milo-dev:/home/virtrc# ./run_virtrc.sh
 
-This command runs QEMU for ARM aarch64 emulation. You can see the kernel messages.   
-You can login as 'root' without password.  
+This command runs QEMU for ARM aarch64 emulation. You can login as 'root' without password.  
 
 	** VIRT-RC SYSTEM **
 	buildroot login: root

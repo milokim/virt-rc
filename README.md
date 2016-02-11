@@ -6,7 +6,7 @@ QEMU and kernel are built based on ARM AARCH64. Buildroot is used for creating i
 
 ## How to Get Image  
 
-Distribution channel is Docker.  
+Distribution channel is Docker. Please refer to the [installation page](https://docs.docker.com/engine/installation/linux/ubuntulinux/) if not installed.  
 The virt-rc system requires building not only QEMU but also kernel, 
 so Docker is a good option to release new built binaries.  
 You can pull docker image from Docker hub.  

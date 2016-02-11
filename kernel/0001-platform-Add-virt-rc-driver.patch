@@ -1,0 +1,309 @@
+From c8e7c9a98b9b05b63dc6281301dcee24320be405 Mon Sep 17 00:00:00 2001
+From: Milo Kim <woogyom.kim@gmail.com>
+Date: Thu, 11 Feb 2016 16:09:53 +0900
+Subject: [PATCH] platform: Add virt-rc driver
+
+The virt-rc driver communicates with virt-rc device in QEMU.
+
+Device tree properties
+  QEMU aarch64 creates the FDT, the driver parses the DT and use it.
+
+Registers
+  PORT register configures http port number.
+  It is used for QEMU port redirection.
+  OPEN_URL register selects the ID for opening URL.
+  INT_STATUS register represents which interrupt occurs.
+  Two interrupt status information is provided.
+
+Sysfs - 'career'
+  User requests career, then driver sends the command to QEMU.
+  The virt-rc device in QEMU requests the web page and generates an
+  interrupt. Then, driver handles the interrupt.
+  Web server, 'lighttpd' runs in the QEMU guest.
+
+Signed-off-by: Milo Kim <woogyom.kim@gmail.com>
+---
+ drivers/platform/Kconfig           |   2 +
+ drivers/platform/Makefile          |   1 +
+ drivers/platform/virt-rc/Kconfig   |   5 +
+ drivers/platform/virt-rc/Makefile  |   1 +
+ drivers/platform/virt-rc/virt-rc.c | 228 +++++++++++++++++++++++++++++++++++++
+ 5 files changed, 237 insertions(+)
+ create mode 100644 drivers/platform/virt-rc/Kconfig
+ create mode 100644 drivers/platform/virt-rc/Makefile
+ create mode 100644 drivers/platform/virt-rc/virt-rc.c
+
+diff --git a/drivers/platform/Kconfig b/drivers/platform/Kconfig
+index 0adccbf..380f8d3 100644
+--- a/drivers/platform/Kconfig
++++ b/drivers/platform/Kconfig
+@@ -9,3 +9,5 @@ source "drivers/platform/goldfish/Kconfig"
+ endif
+ 
+ source "drivers/platform/chrome/Kconfig"
++
++source "drivers/platform/virt-rc/Kconfig"
+diff --git a/drivers/platform/Makefile b/drivers/platform/Makefile
+index ca26925..1b39785 100644
+--- a/drivers/platform/Makefile
++++ b/drivers/platform/Makefile
+@@ -7,3 +7,4 @@ obj-$(CONFIG_MIPS)		+= mips/
+ obj-$(CONFIG_OLPC)		+= olpc/
+ obj-$(CONFIG_GOLDFISH)		+= goldfish/
+ obj-$(CONFIG_CHROME_PLATFORMS)	+= chrome/
++obj-$(CONFIG_ARM64)		+= virt-rc/
+diff --git a/drivers/platform/virt-rc/Kconfig b/drivers/platform/virt-rc/Kconfig
+new file mode 100644
+index 0000000..740487b
+--- /dev/null
++++ b/drivers/platform/virt-rc/Kconfig
+@@ -0,0 +1,5 @@
++config VIRT_RC
++	tristate "Virtual device for QEMU virt-rc device"
++	---help---
++	  This is a virtual device to drive the QEMU used by the AARCH64
++	  virtual Device.
+diff --git a/drivers/platform/virt-rc/Makefile b/drivers/platform/virt-rc/Makefile
+new file mode 100644
+index 0000000..abc35f3
+--- /dev/null
++++ b/drivers/platform/virt-rc/Makefile
+@@ -0,0 +1 @@
++obj-$(CONFIG_VIRT_RC)	+=	virt-rc.o
+diff --git a/drivers/platform/virt-rc/virt-rc.c b/drivers/platform/virt-rc/virt-rc.c
+new file mode 100644
+index 0000000..c61dafe
+--- /dev/null
++++ b/drivers/platform/virt-rc/virt-rc.c
+@@ -0,0 +1,228 @@
++/*
++ * Virtual but Real Career Driver
++ *
++ * It runs as virtual driver, but contents are REAL!
++ *
++ * Copyright 2016 Milo Kim <woogyom.kim@gmail.com>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++ */
++
++#include <linux/err.h>
++#include <linux/io.h>
++#include <linux/interrupt.h>
++#include <linux/kernel.h>
++#include <linux/list.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <linux/slab.h>
++#include <linux/sysfs.h>
++
++#define DEFAULT_PORT_ID		3504
++#define REG_PORT		0x0
++#define REG_OPEN_URL		0x4
++#define REG_INT_STATUS		0x8
++#define IRQ_URL_OPENED		BIT(0)
++#define IRQ_URL_FAILED		BIT(1)
++
++struct virt_rc {
++	struct device *dev;
++	void __iomem *base;
++};
++
++/* RC descriptior */
++struct virt_rc_desc {
++	struct list_head list;
++	const char *name;
++	int id;
++};
++
++static LIST_HEAD(rc_desc_list);
++
++static ssize_t virt_rc_show_career(struct device *dev,
++				   struct device_attribute *attr, char *buf)
++{
++	struct virt_rc_desc *desc;
++	char *s = buf;
++
++	list_for_each_entry(desc, &rc_desc_list, list)
++		s += sprintf(s, "%s ", desc->name);
++
++	s += sprintf(s, "\n");
++
++	return (s - buf);
++}
++
++static int virt_rc_get_index(const char *buf)
++{
++	struct virt_rc_desc *desc;
++
++	list_for_each_entry(desc, &rc_desc_list, list)
++		if (!strncmp(buf, desc->name, strlen(desc->name)))
++			return desc->id;
++
++	return -EINVAL;
++}
++
++static ssize_t virt_rc_store_career(struct device *dev,
++				    struct device_attribute *attr,
++				    const char *buf, size_t len)
++{
++	struct virt_rc *rc = dev_get_drvdata(dev);
++	int val = virt_rc_get_index(buf);
++
++	if (val < 0)
++		return -EINVAL;
++
++	writel(val, rc->base + REG_OPEN_URL);
++
++	return len;
++}
++
++static DEVICE_ATTR(career, S_IRUGO | S_IWUSR,
++		   virt_rc_show_career, virt_rc_store_career);
++
++static struct attribute *virt_rc_attributes[] = {
++	&dev_attr_career.attr,
++	NULL,
++};
++
++static const struct attribute_group virt_rc_attr_group = {
++	.attrs = virt_rc_attributes,
++};
++
++static int virt_rc_alloc_desc(struct device_node *np, struct device *dev)
++{
++	struct device_node *child;
++	struct virt_rc_desc *desc;
++	int num;
++	u32 val;
++
++	num = of_get_child_count(np);
++	if (num < 0)
++		return -ENODEV;
++
++	desc = devm_kzalloc(dev, sizeof(*desc) * num, GFP_KERNEL);
++	if (!desc)
++		return -ENOMEM;
++
++	/* Get description from the DT and add it into the list */
++	for_each_child_of_node(np, child) {
++		if (of_property_read_u32(child, "reg", &val))
++			continue;
++
++		desc->id = val;
++		desc->name = child->name;
++		list_add(&desc->list, &rc_desc_list);
++
++		desc++;
++	}
++
++	return 0;
++}
++
++static int virt_rc_init(struct device_node *np, struct virt_rc *rc)
++{
++	int ret;
++	u32 val;
++
++	ret = of_property_read_u32(np, "port-id", &val);
++	if (ret < 0)
++		val = DEFAULT_PORT_ID;
++
++	writel(val, rc->base + REG_PORT);
++
++	return virt_rc_alloc_desc(np, rc->dev);
++}
++
++static irqreturn_t virt_rc_irq_handler(int irq, void *data)
++{
++	struct virt_rc *rc = (struct virt_rc *)data;
++	u32 status;
++
++	status = readl(rc->base + REG_INT_STATUS);
++
++	if (status & IRQ_URL_FAILED)
++		dev_err(rc->dev, "URL open failure\n");
++
++	return IRQ_HANDLED;
++}
++
++static int virt_rc_allocate_irq(struct virt_rc *rc, int irq)
++{
++	return request_irq(irq, virt_rc_irq_handler, 0, "virt_rc_irq", rc);
++}
++
++static int virt_rc_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct resource *res;
++	struct virt_rc *rc;
++	int ret;
++
++	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
++	if (!res)
++		return -ENOMEM;
++
++	rc = devm_kzalloc(dev, sizeof(*rc), GFP_KERNEL);
++	if (!rc)
++		return -ENOMEM;
++
++	rc->dev = dev;
++	rc->base = devm_ioremap(dev, res->start, resource_size(res));
++	if (!rc->base)
++		return -EINVAL;
++
++	res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
++	if (res) {
++		ret = virt_rc_allocate_irq(rc, res->start);
++		if (ret)
++			return ret;
++	}
++
++	platform_set_drvdata(pdev, rc);
++
++	ret = virt_rc_init(dev->of_node, rc);
++	if (ret)
++		return ret;
++
++	return sysfs_create_group(&dev->kobj, &virt_rc_attr_group);
++}
++
++static int virt_rc_remove(struct platform_device *pdev)
++{
++	struct virt_rc *rc = platform_get_drvdata(pdev);
++	struct virt_rc_desc *desc, *n;
++
++	list_for_each_entry_safe(desc, n, &rc_desc_list, list)
++		list_del(&desc->list);
++
++	sysfs_remove_group(&rc->dev->kobj, &virt_rc_attr_group);
++	return 0;
++}
++
++#ifdef CONFIG_OF
++static const struct of_device_id virt_rc_of_match[] = {
++	{ .compatible = "virt-rc", },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, virt_rc_of_match);
++#endif
++
++static struct platform_driver virt_rc_driver = {
++	.probe = virt_rc_probe,
++	.remove = virt_rc_remove,
++	.driver = {
++		.name = "virt_rc",
++		.of_match_table = of_match_ptr(virt_rc_of_match),
++	},
++};
++
++module_platform_driver(virt_rc_driver);
++
++MODULE_DESCRIPTION("Virtual RC Driver");
++MODULE_AUTHOR("Milo Kim");
++MODULE_LICENSE("GPL");
+-- 
+1.9.1
+

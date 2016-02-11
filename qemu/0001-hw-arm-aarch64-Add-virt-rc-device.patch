@@ -1,0 +1,385 @@
+From 214fef08f38671fbb2241e3eadfa278a592551dc Mon Sep 17 00:00:00 2001
+From: Milo Kim <woogyom.kim@gmail.com>
+Date: Thu, 11 Feb 2016 15:44:06 +0900
+Subject: [PATCH] hw: arm: aarch64: Add virt-rc device
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add virt-rc device. It communicates with virt-rc driver in the kernel.
+
+Memory map
+
+  Start address is 0x0b00 0000. Size is 0x200.
+  +------------------------+ 0
+  |       VIRT_FLASH       |
+  +------------------------+ 0x0800 0000
+             ...
+  +------------------------+ 0x0a00 0000
+  |       VIRT_MMIO        |
+  +------------------------+ 0x0a00 0200
+
+  +------------------------+ 0x0b00 0000  <-+
+  |        VIRT_RC         |                | add VIRT_RC device
+  +------------------------+ 0x0b00 0200  <-+
+
+Register map
+
+  Bit description                Register      Offset
+
+ 31                        0
+  +------------------------+
+  |       port number      |     PORT          0
+  +------------------------+
+
+  31                       0
+  +------------------------+
+  |           ID           |     OPEN_URL      4
+  +------------------------+
+
+  31                   2 1 0
+  +------------------------+
+  |       reserved     |f|o|     INT_STATUS    8
+  +------------------------+
+                                 'f': 1 - URL request failed
+                                 'o': 1 - URL opened
+
+  PORT register configures http port number.
+  It is used for QEMU port redirection.
+  OPEN_URL register selects the ID for opening URL.
+  INT_STATUS register represents which interrupt occurs.
+  Two interrupt status information is provided.
+
+Interrupt
+  IRQ number is 176.
+
+FDT
+  The virt-rc driver is loaded from FDT which is created by QEMU.
+  So QEMU does not require ‘-dtb’ option be run.
+
+	virt_rc@0b000000 {
+		compatible = "virt-rc";
+		reg = <0x0b000000 0x200>;
+		interrupt-parents = <&gic>;
+		interrupts = <176>;
+		port-id = 3504;
+
+		drivers@0 {
+			reg = <0>;
+		};
+
+		android@1 {
+			reg = <1>;
+		};
+
+		mainline@2 {
+			reg = <2>;
+		};
+
+		qemu@3 {
+			reg = <3>;
+		};
+
+		hw@4 {
+			reg = <4>;
+		};
+	};
+
+  Child node represents career nodes, virt-rc kernel driver uses these nodes
+  for creating career information. Register number (0 to 4) means career ID
+  which is used on URL request.
+
+Signed-off-by: Milo Kim <woogyom.kim@gmail.com>
+---
+ default-configs/aarch64-softmmu.mak |   1 +
+ hw/arm/virt.c                       |  60 ++++++++++++++
+ hw/misc/Makefile.objs               |   2 +
+ hw/misc/virt_rc.c                   | 152 ++++++++++++++++++++++++++++++++++++
+ include/hw/arm/virt.h               |   1 +
+ 5 files changed, 216 insertions(+)
+ create mode 100644 hw/misc/virt_rc.c
+
+diff --git a/default-configs/aarch64-softmmu.mak b/default-configs/aarch64-softmmu.mak
+index 96dd994..6ba4731 100644
+--- a/default-configs/aarch64-softmmu.mak
++++ b/default-configs/aarch64-softmmu.mak
+@@ -4,3 +4,4 @@
+ include arm-softmmu.mak
+ 
+ CONFIG_XLNX_ZYNQMP=y
++CONFIG_VIRT_RC=y
+diff --git a/hw/arm/virt.c b/hw/arm/virt.c
+index 15658f4..e475c83 100644
+--- a/hw/arm/virt.c
++++ b/hw/arm/virt.c
+@@ -125,6 +125,8 @@ static const MemMapEntry a15memmap[] = {
+     [VIRT_GPIO] =               { 0x09030000, 0x00001000 },
+     [VIRT_SECURE_UART] =        { 0x09040000, 0x00001000 },
+     [VIRT_MMIO] =               { 0x0a000000, 0x00000200 },
++    /* Real Career Device */
++    [VIRT_RC] =                 { 0x0b000000, 0x00000200 },
+     /* ...repeating for a total of NUM_VIRTIO_TRANSPORTS, each of that size */
+     [VIRT_PLATFORM_BUS] =       { 0x0c000000, 0x02000000 },
+     [VIRT_PCIE_MMIO] =          { 0x10000000, 0x2eff0000 },
+@@ -144,6 +146,7 @@ static const int a15irqmap[] = {
+     [VIRT_MMIO] = 16, /* ...to 16 + NUM_VIRTIO_TRANSPORTS - 1 */
+     [VIRT_GIC_V2M] = 48, /* ...to 48 + NUM_GICV2M_SPIS - 1 */
+     [VIRT_PLATFORM_BUS] = 112, /* ...to 112 + PLATFORM_BUS_NUM_IRQS -1 */
++    [VIRT_RC] = 176,
+ };
+ 
+ static VirtBoardInfo machines[] = {
+@@ -613,6 +616,60 @@ static void create_gpio(const VirtBoardInfo *vbi, qemu_irq *pic)
+     g_free(nodename);
+ }
+ 
++static void create_virt_rc(const VirtBoardInfo *vbi, qemu_irq *pic)
++{
++    char *nodename;
++    char *childname;
++    const char *desc[] = { "drivers", "android", "mainline", "qemu", "hw" };
++    hwaddr base = vbi->memmap[VIRT_RC].base;
++    hwaddr size = vbi->memmap[VIRT_RC].size;
++    int irq = vbi->irqmap[VIRT_RC];
++    int i;
++
++    /*
++     * virt_rc@0b000000 {
++     *         compatible = "virt-rc";
++     *         reg = <0x0b000000 0x200>;
++     *         interrupt-parents = <&gic>;
++     *         interrupts = <176>;
++     *         port-id = 3504;
++     *
++     *         drivers@0 {
++     *             reg = <0>;
++     *         };
++     *
++     *         android@1 {
++     *             reg = <1>;
++     *         };
++     *         ...
++     * }
++     */
++
++    sysbus_create_simple("virt-rc", base, pic[irq]);
++
++    nodename = g_strdup_printf("/virt_rc@%" PRIx64, base);
++    qemu_fdt_add_subnode(vbi->fdt, nodename);
++    qemu_fdt_setprop_string(vbi->fdt, nodename, "compatible", "virt-rc");
++    qemu_fdt_setprop_sized_cells(vbi->fdt, nodename, "reg", 2, base, 2, size);
++
++    qemu_fdt_setprop_cells(vbi->fdt, nodename, "interrupt-parent",
++                           vbi->gic_phandle);
++    qemu_fdt_setprop_cells(vbi->fdt, nodename, "interrupts", GIC_FDT_IRQ_TYPE_SPI,
++                           irq, GIC_FDT_IRQ_FLAGS_LEVEL_HI);
++
++    qemu_fdt_setprop_cell(vbi->fdt, nodename, "port-id", 3504);
++
++    for (i = 0; i < ARRAY_SIZE(desc); i++) {
++        childname = g_strdup_printf("/virt_rc/%s@%" PRIx64, desc[i],
++                                    (long unsigned int)i);
++        qemu_fdt_add_subnode(vbi->fdt, childname);
++        qemu_fdt_setprop_cell(vbi->fdt, childname, "reg", i);
++        g_free(childname);
++    }
++
++    g_free(nodename);
++}
++
+ static void create_virtio_devices(const VirtBoardInfo *vbi, qemu_irq *pic)
+ {
+     int i;
+@@ -1167,6 +1224,9 @@ static void machvirt_init(MachineState *machine)
+      */
+     create_virtio_devices(vbi, pic);
+ 
++    /* Create real career device */
++    create_virt_rc(vbi, pic);
++
+     create_fw_cfg(vbi, &address_space_memory);
+     rom_set_fw(fw_cfg_find());
+ 
+diff --git a/hw/misc/Makefile.objs b/hw/misc/Makefile.objs
+index ea6cd3c..cb428f0 100644
+--- a/hw/misc/Makefile.objs
++++ b/hw/misc/Makefile.objs
+@@ -46,3 +46,5 @@ obj-$(CONFIG_STM32F2XX_SYSCFG) += stm32f2xx_syscfg.o
+ obj-$(CONFIG_PVPANIC) += pvpanic.o
+ obj-$(CONFIG_EDU) += edu.o
+ obj-$(CONFIG_HYPERV_TESTDEV) += hyperv_testdev.o
++
++obj-$(CONFIG_VIRT_RC) += virt_rc.o
+diff --git a/hw/misc/virt_rc.c b/hw/misc/virt_rc.c
+new file mode 100644
+index 0000000..f1aa837
+--- /dev/null
++++ b/hw/misc/virt_rc.c
+@@ -0,0 +1,152 @@
++/*
++ * Virtual but Real Career controller
++ *
++ * Copyright (c) 2016 Milo Kim <woogyom.kim@gmail.com>
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; either version 2
++ * of the License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ *
++ */
++
++#include "hw/sysbus.h"
++#include <stdio.h>
++#include <stdlib.h>
++
++#define TYPE_VIRT_RC          "virt-rc"
++#define VIRT_RC(obj)          OBJECT_CHECK(VirtRcState, (obj), TYPE_VIRT_RC)
++
++#define BASE_URL              "http://localhost"
++#define REG_PORT              0x0
++#define REG_OPEN_URL          0x4
++#define REG_INT_STATUS        0x8
++#define IRQ_URL_OPENED        BIT(0)
++#define IRQ_URL_FAILED        BIT(1)
++
++typedef struct {
++    SysBusDevice parent_obj;
++    MemoryRegion iomem;
++    uint32_t port;
++    qemu_irq irq;
++    uint32_t int_status;
++} VirtRcState;
++
++static void virt_rc_set_irq(VirtRcState *s, int irq)
++{
++    s->int_status = irq;
++    qemu_set_irq(s->irq, 1);
++}
++
++static void virt_rc_clr_irq(VirtRcState *s)
++{
++    qemu_set_irq(s->irq, 0);
++}
++
++static void virt_rc_open_url(VirtRcState *s, int value)
++{
++    const char *desc[] = { "drivers", "android", "mainline",
++                           "qemu", "hw", };
++    char cmd[128];
++    int ret;
++
++    if (value < 0 || value >= ARRAY_SIZE(desc)) {
++        ret = -1;
++        goto err;
++    }
++
++    snprintf(cmd, sizeof(cmd), "xdg-open %s:%d/%s/ &",
++             BASE_URL, s->port, desc[value]);
++
++    ret = system(cmd);
++    if (ret) {
++        goto err;
++    }
++
++    virt_rc_set_irq(s, IRQ_URL_OPENED);
++    return;
++
++err:
++    fprintf(stderr, "Can not open the URL, err=%d\n", ret);
++    virt_rc_set_irq(s, IRQ_URL_FAILED);
++}
++
++static uint64_t virt_rc_read(void *opaque, hwaddr offset, unsigned size)
++{
++    VirtRcState *s = (VirtRcState *)opaque;
++
++    switch (offset) {
++    case REG_PORT:
++        return s->port;
++    case REG_INT_STATUS:
++        virt_rc_clr_irq(s);
++        return s->int_status;
++    default:
++        break;
++    }
++
++    return -1;
++}
++
++static void virt_rc_write(void *opaque, hwaddr offset, uint64_t value,
++                          unsigned size)
++{
++    VirtRcState *s = (VirtRcState *)opaque;
++
++    switch (offset) {
++    case REG_PORT:
++        s->port = (int)value;
++        break;
++    case REG_OPEN_URL:
++        virt_rc_open_url(s, (int)value);
++        break;
++    default:
++        break;
++    }
++}
++
++static const MemoryRegionOps virt_rc_ops = {
++    .read = virt_rc_read,
++    .write = virt_rc_write,
++    .endianness = DEVICE_NATIVE_ENDIAN,
++};
++
++static void virt_rc_realizefn(DeviceState *d, Error **errp)
++{
++    VirtRcState *s = VIRT_RC(d);
++    SysBusDevice *sbd = SYS_BUS_DEVICE(d);
++
++    memory_region_init_io(&s->iomem, OBJECT(s), &virt_rc_ops, s,
++                          TYPE_VIRT_RC, 0x200);
++    sysbus_init_mmio(sbd, &s->iomem);
++    sysbus_init_irq(sbd, &s->irq);
++}
++
++static void virt_rc_class_init(ObjectClass *klass, void *data)
++{
++    DeviceClass *dc = DEVICE_CLASS(klass);
++
++    dc->realize = virt_rc_realizefn;
++}
++
++static const TypeInfo virt_rc_info = {
++    .name          = TYPE_VIRT_RC,
++    .parent        = TYPE_SYS_BUS_DEVICE,
++    .instance_size = sizeof(VirtRcState),
++    .class_init    = virt_rc_class_init,
++};
++
++static void virt_rc_register_types(void)
++{
++    type_register_static(&virt_rc_info);
++}
++
++type_init(virt_rc_register_types)
+diff --git a/include/hw/arm/virt.h b/include/hw/arm/virt.h
+index 1ce7847..9ef500e 100644
+--- a/include/hw/arm/virt.h
++++ b/include/hw/arm/virt.h
+@@ -61,6 +61,7 @@ enum {
+     VIRT_PCIE_MMIO_HIGH,
+     VIRT_GPIO,
+     VIRT_SECURE_UART,
++    VIRT_RC,
+ };
+ 
+ typedef struct MemMapEntry {
+-- 
+1.9.1
+

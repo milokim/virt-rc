@@ -41,6 +41,9 @@ This command runs QEMU for ARM aarch64 emulation. Please login as 'root' without
 	** VIRT-RC SYSTEM **
 	buildroot login: root
 
+	# uname -a
+	Linux buildroot 4.3.0 #58 SMP Thu Feb 11 23:30:57 KST 2016 aarch64 GNU/Linux
+
 Now, you are in ARM system. Let's move to the sysfs of virt-rc device.  
 
 	# cd /sys/devices/platform/b000000.virt_rc/	

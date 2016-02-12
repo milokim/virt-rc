@@ -9,12 +9,12 @@ QEMU and kernel are built based on ARM AARCH64. Buildroot is used for creating i
 Distribution channel is Docker. Please refer to the [installation page](https://docs.docker.com/engine/installation/linux/ubuntulinux/) if not installed.  
 The virt-rc system requires building not only QEMU but also kernel, 
 so docker is a good option to release new built binaries as a snapshot.  
+
 You can pull docker image from docker hub.  
 
 	$ docker pull virtrc/latest
 
-This image includes virt-rc binaries and shell script file.  
-Please note that this repository is ubuntu-based.  
+This image includes virt-rc binaries and shell script file. Please note that this repository is ubuntu-based.  
 
 Alternatively, you may want to build docker image manually. Please use the [Dockerfile](https://github.com/milokim/virt-rc/blob/master/docker/Dockerfile) and build it.  
 

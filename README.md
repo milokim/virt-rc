@@ -8,22 +8,21 @@ QEMU and kernel are built based on ARM AARCH64. Buildroot is used for creating i
 
 Distribution channel is Docker. Please refer to the [installation page](https://docs.docker.com/engine/installation/linux/ubuntulinux/) if not installed.  
 The virt-rc system requires building not only QEMU but also kernel, 
-so docker is a good option to release new built binaries like a snapshot.  
+so docker is a good option to release new built binaries as a snapshot.  
 You can pull docker image from docker hub.  
 
 	$ docker pull virtrc/latest
 
-This image includes built binaries and shell script file.  
+This image includes virt-rc binaries and shell script file.  
 
-Alternatively, if you have free time, then you can also try to build docker image manually using Dockerfile. 
-Please check it [here](https://github.com/milokim/virt-rc/blob/master/docker/Dockerfile).  
+Alternatively, you may want to build docker image manually. Please use the [Dockerfile](https://github.com/milokim/virt-rc/blob/master/docker/Dockerfile) and build it.  
 
 	$ docker build -t virtrc/latest .
 
 ## How to Run Virt-RC  
 
 Before you run virt-rc system, you need to execute docker first.  
-Please type commands below. (Or you can run this [script](https://github.com/milokim/virt-rc/blob/master/docker/run_docker.sh).) 
+Please type commands below. (Or you can use the [script](https://github.com/milokim/virt-rc/blob/master/docker/run_docker.sh).) 
 
 	$ xhost local:root
 	$ docker run -it \
@@ -33,11 +32,11 @@ Please type commands below. (Or you can run this [script](https://github.com/mil
 	    virtrc/latest
 
 Welcome! You just ran a container. It's time to go inside and take a look :)  
-Please execute the shell script below.  
+Run virt-rc system by using the script.  
 
 	root@milo-dev:/home/virtrc# ./run_virtrc.sh
 
-This command runs QEMU for ARM aarch64 emulation. You can login as 'root' without password.  
+This command runs QEMU for ARM aarch64 emulation. Please login as 'root' without password.  
 
 	** VIRT-RC SYSTEM **
 	buildroot login: root
@@ -48,11 +47,11 @@ Now, you are in ARM system. Let's move to the sysfs of virt-rc device.
 	# cat career
 	drivers android mainline qemu hw
 
-Please select category which you're interested in. You can check the details by writing a value like  
+Please select a category which you're interested in.  
 
 	# echo "drivers" > career
 
-Then, you can see the web page. You can type other values such like 'android', 'mainline', 'qemu' and 'hw'.
+Then, you will see the web page. You can type other values such like 'android', 'mainline', 'qemu' and 'hw'.
 
 To quit the virt-rc system, press ctrl + a and c, then type 'quit' in (qemu) console. 
 You need additional command - 'exit' to escape docker image.

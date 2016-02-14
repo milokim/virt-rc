@@ -17,6 +17,7 @@ You can pull docker image from docker hub.
 This image includes virt-rc binaries and shell script file. Please note that this repository is ubuntu-based.  
 
 Alternatively, you may want to build docker image manually. Please use the [Dockerfile](https://github.com/milokim/virt-rc/blob/master/docker/Dockerfile) and build it.  
+It takes much time to be completed. If you've already pulled the image, then please skip building the dockerfile.  
 
 	$ docker build -t virtrc/latest .
 

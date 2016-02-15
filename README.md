@@ -4,7 +4,7 @@ Virt-RC(*Virtual but Real Career*) system describes my career more clearly. It's
 This system consists of two parts - QEMU (*virtual device*) and Linux ARM Guest OS (*virtual driver and initramfs*).
 QEMU and kernel are built based on ARM AARCH64. Buildroot is used for creating initramfs which includes the web server, 'lighttpd'.  
 
-## How to Get Image  
+## How to Get a Prebuilt Image  
 
 Distribution channel is Docker. Please refer to the [installation page](https://docs.docker.com/engine/installation/linux/ubuntulinux/) if not installed.  
 The virt-rc system requires building not only QEMU but also kernel, 
@@ -59,4 +59,28 @@ Please select a category which you're interested in.
 Then, you will see the web page. You can type other values such like 'android', 'mainline', 'qemu' and 'hw'.
 
 To quit the virt-rc system, press ctrl + a and c, then type 'quit' in (qemu) console. 
-You need additional command - 'exit' to escape docker image.
+You need additional command - 'exit' to escape docker image.  
+
+## How It Works  
+
+Whenever user (recruiter) requests the details of my career, virtual driver and device handle it. 
+Virtual device opens the URL, then user can see my career page.  
+
+
+![digram](https://github.com/milokim/virt-rc/blob/master/virtrc_diagram.png)
+
+
+* Guest OS  
+Kernel is ARM64. User-space is built from buildroot. Web server and some utilities are included in initramfs.  
+The virt-rc driver requests the memory IO region and creates the sysfs named 'career' on initialization.  
+As soon as a value is written to 'career', then virt-rc driver sends a command to virt-rc device in QEMU.  
+This is memory map IO communication, so registers are implemented both in virtual driver and device.  
+
+	Source code: [virt-rc driver](https://github.com/milokim/virt-rc/blob/master/kernel/0001-platform-Add-virt-rc-driver.patch)
+
+* Host  
+Whenever IO read/write operation is requested from the guest, QEMU virt-rc device handles the command.  
+In case a command is for opening URL, then virt-rc device runs a web browser and request a URL.  
+Then, web server in the guest responds through the virtual network.  
+
+	Source code: [virt-rc device](https://github.com/milokim/virt-rc/blob/master/qemu/0001-hw-arm-aarch64-Add-virt-rc-device.patch)
